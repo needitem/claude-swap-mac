@@ -8,14 +8,26 @@ copied commands.
 
 Run without a TTY, ``claude auth login`` is pleasantly scriptable: it opens the
 browser, prints the authorize URL, and then blocks reading the pasted code from
-stdin. So the app drives the whole sequence and only asks the user for the code.
+stdin. So the app drives the whole sequence and at most asks for the code.
 
-    logout -> claude auth login -> [user signs in] -> code -> cswap add
+    back up current login -> claude auth login -> [user signs in] -> cswap add
 
-The one genuinely dangerous moment is the logout: from there until ``cswap add``
-succeeds, the machine has no active login. Every failure path therefore ends in
-``cswap switch <previous> --force``, which puts the old account back from its
-backup.
+**Do not log out first.** An earlier version ran ``claude auth logout`` before
+the login, on the theory that cswap held a backup and could restore it if
+anything went wrong. It cannot: logout revokes the refresh token *server-side*,
+so restoring the backed-up credentials hands Claude Code a dead token and cswap
+reports "re-login needed". Logging in while already logged in works fine and
+replaces the credentials only on success, which means a cancelled or failed
+login now leaves the existing account untouched — there is nothing to restore.
+
+The login does not always need a code: when the browser session completes the
+callback itself, the process exits successfully on its own. :meth:`finish`
+therefore accepts an empty code and treats an already-exited process as done.
+
+One consequence of the browser doing the signing in: it uses whatever account
+is signed in at claude.com, and will happily re-approve that one without
+asking. Adding a *different* account means signing out there first, or opening
+the printed URL in a private window.
 """
 
 from __future__ import annotations
@@ -65,12 +77,6 @@ def auth_status() -> dict:
         return {}
 
 
-def logout() -> None:
-    subprocess.run(
-        [_claude(), "auth", "logout"], capture_output=True, text=True, timeout=60, check=False
-    )
-
-
 class LoginSession:
     """A running ``claude auth login``, waiting for its code."""
 
@@ -95,19 +101,40 @@ class LoginSession:
             "claude auth login did not print a sign-in URL.\n\n" + self.output.strip()[-500:]
         )
 
-    def submit(self, code: str, timeout: float = 180.0) -> None:
-        """Hand the pasted code to claude and wait for it to finish."""
-        try:
-            assert self._proc.stdin is not None
-            self._proc.stdin.write((code.strip() + "\n").encode())
-            self._proc.stdin.flush()
-        except (BrokenPipeError, OSError) as exc:
-            raise AddAccountError(f"could not send the code to claude: {exc}") from exc
-        try:
-            self._proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            self.cancel()
-            raise AddAccountError("claude auth login timed out") from exc
+    # How long to keep waiting when there is no code to send, on the chance the
+    # browser callback is about to complete the login by itself.
+    GRACE_S = 25.0
+
+    def finish(self, code: str = "", timeout: float = 180.0) -> None:
+        """Complete the login.
+
+        ``code`` is optional: when the browser session completes the callback
+        itself, claude exits successfully without ever reading stdin, and there
+        is no code for the user to paste.
+        """
+        code = (code or "").strip()
+        if self._proc.poll() is None:
+            if code:
+                try:
+                    assert self._proc.stdin is not None
+                    self._proc.stdin.write((code + "\n").encode())
+                    self._proc.stdin.flush()
+                except (BrokenPipeError, OSError) as exc:
+                    raise AddAccountError(f"could not send the code to claude: {exc}") from exc
+                wait_for = timeout
+            else:
+                wait_for = self.GRACE_S
+            try:
+                self._proc.wait(timeout=wait_for)
+            except subprocess.TimeoutExpired as exc:
+                self.cancel()
+                if not code:
+                    raise AddAccountError(
+                        "로그인이 아직 끝나지 않았습니다.\n\n"
+                        "브라우저에서 로그인을 마친 뒤, 화면에 코드가 표시되면 "
+                        "그 코드를 붙여넣고 다시 시도하세요."
+                    ) from exc
+                raise AddAccountError("claude auth login timed out") from exc
         if self._proc.returncode != 0:
             raise AddAccountError(
                 "sign-in failed.\n\n" + (self.output.strip()[-500:] or "no output")

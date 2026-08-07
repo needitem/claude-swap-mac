@@ -96,19 +96,32 @@ Anthropic exposes no password endpoint. The browser page *is* the login. What
 the app removes is everything around it:
 
 1. Backs up the account you are logged into now, if it is not stored already
-2. Logs out and starts `claude auth login`, which opens the browser
-3. Asks you for the code the login page shows, and hands it to `claude`
+2. Starts `claude auth login`, which opens the browser
+3. Takes the code the login page shows — or nothing at all, when the browser
+   session completes the callback by itself
 4. Runs `cswap add`, and the new card appears
 
-The window between the logout in step 2 and `cswap add` in step 4 is the one
-moment the machine has no active login, so **every** failure path — a cancelled
-dialog, a bad code, a timeout — ends in `cswap switch <previous> --force`,
-putting the old account back from its backup.
+**It does not log you out first**, and that is deliberate. An earlier version
+did, reasoning that cswap held a backup to restore from if anything failed. It
+does not work: `claude auth logout` revokes the refresh token *server-side*, so
+restoring the backup hands Claude Code a dead token and cswap reports
+`re-login needed`. Logging in while already logged in replaces the credentials
+only on success, so a cancelled or failed login now leaves your existing
+account untouched.
+
+One thing the app cannot do for you: the browser signs in with whatever account
+is already logged in at claude.com, and re-approves it without asking. **To add
+a different account, sign out at claude.com first** — or copy the URL from the
+dialog into a private window.
 
 **계정 추가… → 토큰 붙여넣기** skips the browser entirely: paste a setup-token
 (`claude setup-token`, `sk-ant-oat…`) or a Console API key (`sk-ant-api…`) and
 it goes straight to `cswap add-token`. Note that an API-key account has no
 subscription quota, so it shows no usage bars.
+
+If an account ever shows `re-login needed`, its stored refresh token is dead.
+Log in as that account and run `cswap add` — it updates the slot in place
+rather than adding a duplicate.
 
 ## Refreshing
 

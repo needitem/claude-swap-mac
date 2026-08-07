@@ -85,18 +85,43 @@ def test_missing_url_raises_with_the_output_for_context():
         session.wait_for_url(timeout=1)
 
 
-def test_submit_sends_the_code_with_a_newline():
+def test_finish_sends_the_code_with_a_newline():
     proc = FakeProc(SAMPLE_OUTPUT.encode())
     session = session_for(proc)
-    session.submit("  abc123  ")
+    session.finish("  abc123  ")
     assert bytes(proc.written) == b"abc123\n"
 
 
-def test_submit_raises_when_claude_exits_nonzero():
+def test_finish_raises_when_claude_exits_nonzero():
     proc = FakeProc(SAMPLE_OUTPUT.encode(), returncode=1)
     session = session_for(proc)
     with pytest.raises(add_account.AddAccountError, match="sign-in failed"):
-        session.submit("abc123")
+        session.finish("abc123")
+
+
+def test_finish_accepts_a_login_that_already_completed_itself():
+    """The browser callback can finish the login with no code to paste."""
+    proc = FakeProc(SAMPLE_OUTPUT.encode() + b"Login successful.\n")
+    proc.wait()  # claude exited on its own
+    session = session_for(proc)
+    session.finish("")  # must not raise, and must not write anything
+    assert bytes(proc.written) == b""
+
+
+def test_finish_without_a_code_asks_for_one_if_still_waiting(monkeypatch):
+    monkeypatch.setattr(add_account.LoginSession, "GRACE_S", 0.05)
+
+    class Hanging(FakeProc):
+        def wait(self, timeout=None):
+            if self.killed:  # cancel() kills first, then reaps
+                return super().wait(timeout)
+            raise subprocess.TimeoutExpired("claude", timeout)
+
+    proc = Hanging(SAMPLE_OUTPUT.encode())
+    session = session_for(proc)
+    with pytest.raises(add_account.AddAccountError, match="코드"):
+        session.finish("")
+    assert proc.killed
 
 
 def test_cancel_kills_a_running_login():

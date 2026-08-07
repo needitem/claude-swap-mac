@@ -318,9 +318,12 @@ class DashboardApp(rumps.App):
         choice = rumps.alert(
             title="계정 추가",
             message=(
-                "브라우저에서 Anthropic 로그인 페이지가 열립니다. 로그인하면 나오는 "
-                "코드를 앱에 붙여넣으면 등록까지 자동으로 끝납니다.\n\n"
-                "지금 계정은 먼저 백업되고, 도중에 취소하면 그대로 복구됩니다."
+                "브라우저에서 Anthropic 로그인 페이지가 열립니다. 로그인이 끝나면 "
+                "등록까지 자동으로 진행됩니다.\n\n"
+                "다른 계정을 추가하려면 브라우저에서 claude.com에 먼저 로그아웃하세요. "
+                "이미 로그인된 계정이 있으면 그 계정으로 그대로 승인됩니다. "
+                "(다음 창에 뜨는 주소를 시크릿 창에 붙여넣어도 됩니다)\n\n"
+                "지금 계정은 먼저 백업되며, 취소해도 로그인 상태는 그대로입니다."
             ),
             ok="브라우저로 로그인",
             cancel="취소",
@@ -353,9 +356,11 @@ class DashboardApp(rumps.App):
     def _add_via_browser(self):
         def stage_one():
             try:
+                # Store the login we are about to replace. Note we deliberately
+                # do NOT log out first: logout revokes the refresh token
+                # server-side, which would make this very backup useless.
                 add_account.protect_current_login()
                 previous = add_account.active_account_number()
-                add_account.logout()
                 session = add_account.start_login()
                 url = session.wait_for_url()
             except Exception as exc:
@@ -369,33 +374,51 @@ class DashboardApp(rumps.App):
         response = rumps.Window(
             title="브라우저에서 로그인",
             message=(
-                "브라우저에서 로그인한 뒤 표시되는 코드를 붙여넣으세요.\n\n"
-                "브라우저가 열리지 않았다면 이 주소를 여세요:\n" + url
+                "브라우저에서 로그인을 마치세요.\n\n"
+                "• 코드가 표시되면 아래에 붙여넣고 [완료]\n"
+                "• 코드 없이 자동으로 끝났으면 그냥 [완료]\n\n"
+                "브라우저가 열리지 않았거나 다른 계정으로 로그인하려면 "
+                "이 주소를 (시크릿 창에) 여세요:\n" + url
             ),
             ok="완료",
             cancel="취소",
             dimensions=(340, 24),
         ).run()
-        code = (response.text or "").strip()
-        if not response.clicked or not code:
-            # Cancelled after the logout — put the old login back.
-            self._background(
-                lambda: (session.cancel(), self._restore(previous))[1],
-                "계정 추가를 취소하고 이전 계정을 복구했습니다",
-            )
+        if not response.clicked:
+            # Nothing was replaced — no logout happened, so the current login is
+            # still the one it always was. Just stop the login process.
+            self._background(lambda: session.cancel(), "계정 추가를 취소했습니다")
             return
+
+        code = (response.text or "").strip()
 
         def stage_two():
             try:
-                session.submit(code)
+                session.finish(code)
                 cswap.add_current()
             except Exception as exc:
-                self._restore(previous)
-                _on_main(self._add_failed, f"{exc}", previous)
+                # A failed sign-in leaves the old credentials in place, but a
+                # sign-in that *succeeded* as another account before `cswap add`
+                # failed has replaced them — restore in that case.
+                restored = self._restore_if_replaced(previous)
+                _on_main(self._add_failed, f"{exc}", previous if restored else None)
                 return
             _on_main(self._add_done, "계정을 추가했습니다")
 
         threading.Thread(target=stage_two, daemon=True).start()
+
+    @staticmethod
+    def _restore_if_replaced(previous) -> bool:
+        """Put ``previous`` back only if the active login is no longer it."""
+        if previous is None:
+            return False
+        try:
+            if add_account.active_account_number() == previous:
+                return False
+        except Exception:
+            pass
+        DashboardApp._restore(previous)
+        return True
 
     @staticmethod
     def _restore(previous):
