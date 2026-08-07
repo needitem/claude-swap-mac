@@ -16,7 +16,7 @@ import rumps
 import WebKit
 from Foundation import NSMakeRect, NSObject, NSOperationQueue
 
-from cswap_dashboard import cswap, render
+from cswap_dashboard import add_account, cswap, render
 
 ICON = "⇄"
 REFRESH_SECONDS = 60
@@ -275,7 +275,9 @@ class DashboardApp(rumps.App):
             if acc.get("active"):
                 item.set_callback(None)  # already there; nothing to do
             items.append(item)
-        items += [None, rumps.MenuItem("새로고침", callback=self.refresh),
+        items += [None,
+                  rumps.MenuItem("계정 추가…", callback=self.add_account),
+                  rumps.MenuItem("새로고침", callback=self.refresh),
                   rumps.MenuItem("종료", callback=rumps.quit_application)]
         for item in items:
             self.menu.add(item) if item is not None else self.menu.add(rumps.separator)
@@ -308,6 +310,121 @@ class DashboardApp(rumps.App):
             _on_main(self._after_switch, err)
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ---- adding an account ------------------------------------------------
+    def add_account(self, _=None):
+        """Whole add flow, in-app. See :mod:`add_account` for why the browser
+        step cannot be removed."""
+        choice = rumps.alert(
+            title="계정 추가",
+            message=(
+                "브라우저에서 Anthropic 로그인 페이지가 열립니다. 로그인하면 나오는 "
+                "코드를 앱에 붙여넣으면 등록까지 자동으로 끝납니다.\n\n"
+                "지금 계정은 먼저 백업되고, 도중에 취소하면 그대로 복구됩니다."
+            ),
+            ok="브라우저로 로그인",
+            cancel="취소",
+            other="토큰 붙여넣기",
+        )
+        if choice == 1:
+            self._add_via_browser()
+        elif choice == -1:  # NSAlertOtherReturn
+            self._add_via_token()
+
+    def _add_via_token(self):
+        response = rumps.Window(
+            title="토큰으로 계정 추가",
+            message=(
+                "setup-token(sk-ant-oat…) 또는 Console API 키(sk-ant-api…)를 붙여넣으세요.\n"
+                "터미널에서 `claude setup-token`으로 만들 수 있습니다."
+            ),
+            ok="추가",
+            cancel="취소",
+            dimensions=(340, 24),
+        ).run()
+        token = (response.text or "").strip()
+        if not response.clicked or not token:
+            return
+        if not add_account.looks_like_token(token):
+            rumps.alert("추가할 수 없음", "sk-ant-oat… 또는 sk-ant-api… 로 시작해야 합니다.")
+            return
+        self._background(lambda: cswap.add_token(token), "토큰으로 계정을 추가했습니다")
+
+    def _add_via_browser(self):
+        def stage_one():
+            try:
+                add_account.protect_current_login()
+                previous = add_account.active_account_number()
+                add_account.logout()
+                session = add_account.start_login()
+                url = session.wait_for_url()
+            except Exception as exc:
+                _on_main(self._add_failed, f"{exc}", None)
+                return
+            _on_main(self._ask_for_code, session, url, previous)
+
+        threading.Thread(target=stage_one, daemon=True).start()
+
+    def _ask_for_code(self, session, url, previous):
+        response = rumps.Window(
+            title="브라우저에서 로그인",
+            message=(
+                "브라우저에서 로그인한 뒤 표시되는 코드를 붙여넣으세요.\n\n"
+                "브라우저가 열리지 않았다면 이 주소를 여세요:\n" + url
+            ),
+            ok="완료",
+            cancel="취소",
+            dimensions=(340, 24),
+        ).run()
+        code = (response.text or "").strip()
+        if not response.clicked or not code:
+            # Cancelled after the logout — put the old login back.
+            self._background(
+                lambda: (session.cancel(), self._restore(previous))[1],
+                "계정 추가를 취소하고 이전 계정을 복구했습니다",
+            )
+            return
+
+        def stage_two():
+            try:
+                session.submit(code)
+                cswap.add_current()
+            except Exception as exc:
+                self._restore(previous)
+                _on_main(self._add_failed, f"{exc}", previous)
+                return
+            _on_main(self._add_done, "계정을 추가했습니다")
+
+        threading.Thread(target=stage_two, daemon=True).start()
+
+    @staticmethod
+    def _restore(previous):
+        if previous is None:
+            return
+        try:
+            cswap.restore(previous)
+        except cswap.CswapError:
+            pass  # nothing better to try; the error dialog already explains
+
+    def _background(self, work, success_message):
+        def run():
+            try:
+                work()
+            except Exception as exc:
+                _on_main(self._add_failed, f"{exc}", None)
+                return
+            _on_main(self._add_done, success_message)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _add_done(self, message):
+        rumps.notification("Claude Swap", "", message)
+        self._fetch()
+
+    def _add_failed(self, message, previous):
+        tail = "\n\n이전 계정은 복구했습니다." if previous is not None else ""
+        rumps.alert("계정 추가 실패", message + tail)
+        self._fetch()
 
     def _after_switch(self, err):
         if err:

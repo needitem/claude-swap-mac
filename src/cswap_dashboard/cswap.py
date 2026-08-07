@@ -122,6 +122,42 @@ DEMO = {
 }
 
 
+def run_plain(args: list[str], timeout: float = 120.0) -> str:
+    """Run a cswap subcommand that has no --json form; return its output."""
+    exe = find_cswap()
+    try:
+        proc = subprocess.run(
+            [exe, *args], capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CswapError(f"cswap {' '.join(args)} timed out") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise CswapError(detail or f"cswap {' '.join(args)} exited {proc.returncode}")
+    return (proc.stdout or "").strip()
+
+
+def add_current(alias: str | None = None) -> str:
+    """``cswap add`` — register whichever account Claude Code is logged into."""
+    return run_plain(["add", *(["--alias", alias] if alias else [])])
+
+
+def add_token(token: str, alias: str | None = None) -> str:
+    """``cswap add-token`` — register a setup-token or API key directly."""
+    return run_plain(["add-token", token, *(["--alias", alias] if alias else [])])
+
+
+def restore(number: int) -> str:
+    """``cswap switch N --force`` — re-activate stored credentials.
+
+    ``--force`` skips backing up the current login first, which is exactly what
+    is wanted when recovering from an add that was cancelled after logout:
+    there is no current login worth keeping, and a plain switch to the account
+    cswap still believes is active would be a no-op that leaves you logged out.
+    """
+    return run_plain(["switch", str(number), "--force"])
+
+
 def list_accounts(timeout: float = 30.0) -> dict:
     """``cswap list --json`` — every account with usage, quota and reset times."""
     if os.environ.get("CSWAP_DASHBOARD_DEMO"):

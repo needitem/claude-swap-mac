@@ -86,6 +86,32 @@ The active account is outlined. Any other account gets a **전환** button; it
 runs `cswap switch N` and repaints. Accounts held out of rotation with
 `cswap disable` are dimmed and marked **제외**.
 
+## Adding an account
+
+Menu bar **⇄** → **계정 추가…**. No terminal, no copied commands.
+
+There is no way to add a Claude subscription account from an ID and password —
+`claude auth login` offers only `--claudeai` / `--console` / `--sso`, and
+Anthropic exposes no password endpoint. The browser page *is* the login. What
+the app removes is everything around it:
+
+1. Backs up the account you are logged into now, if it is not stored already
+2. Logs out and starts `claude auth login`, which opens the browser
+3. Asks you for the code the login page shows, and hands it to `claude`
+4. Runs `cswap add`, and the new card appears
+
+The window between the logout in step 2 and `cswap add` in step 4 is the one
+moment the machine has no active login, so **every** failure path — a cancelled
+dialog, a bad code, a timeout — ends in `cswap switch <previous> --force`,
+putting the old account back from its backup.
+
+**계정 추가… → 토큰 붙여넣기** skips the browser entirely: paste a setup-token
+(`claude setup-token`, `sk-ant-oat…`) or a Console API key (`sk-ant-api…`) and
+it goes straight to `cswap add-token`. Note that an API-key account has no
+subscription quota, so it shows no usage bars.
+
+## Refreshing
+
 Numbers refresh every 60 seconds, and whenever you open the window or switch.
 A failed poll leaves the last good reading on screen rather than blanking it —
 `claude-swap` serves usage from a cache with an age, so a brief network blip
