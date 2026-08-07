@@ -126,12 +126,26 @@ uv tool install --editable .   # `git pull` now updates the installed command
 cswap-dashboard
 ```
 
-`render.py` is pure — it turns a `cswap list --json` payload into HTML with no
-AppKit and no subprocess involved, so you can iterate on the layout with:
+Run against a fixture instead of your real accounts — an active account with a
+per-model window, one nearly out of 5-hour quota and ahead of its weekly pace,
+and one held out of rotation:
 
 ```bash
-cswap list --json > sample.json
-python3 -c "import json,sys; sys.path.insert(0,'src'); from cswap_dashboard.render import render; print(render(json.load(open('sample.json'))))" > /tmp/preview.html && open /tmp/preview.html
+CSWAP_DASHBOARD_DEMO=1 cswap-dashboard
+```
+
+That is also how the screenshot above was taken, so it carries no real email.
+
+`render.py` is pure — it turns a `cswap list --json` payload into HTML with no
+AppKit and no subprocess involved, so you can iterate on the layout in a
+browser:
+
+```bash
+python3 -c "import sys; sys.path.insert(0,'src'); from cswap_dashboard import cswap, render; open('/tmp/preview.html','w').write(render.render(cswap.DEMO))" && open /tmp/preview.html
+```
+
+```bash
+uv run --with pytest pytest -q
 ```
 
 ## Relationship to claude-swap
