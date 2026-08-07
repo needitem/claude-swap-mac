@@ -32,11 +32,20 @@ def test_band_colours_track_utilisation():
     assert 'class="danger"' in html  # 7d at 91%
 
 
-def test_inactive_account_gets_a_switch_button():
+def test_only_inactive_accounts_get_a_switch_button():
     other = {**ACCOUNT, "number": 2, "email": "b@example.com", "active": False}
     html = render_body(payload(ACCOUNT, other))
     assert html.count('class="switch" data-num="2"') == 1
-    assert 'data-num="1"' not in html  # the active one has nothing to switch to
+    assert 'class="switch" data-num="1"' not in html  # already the default login
+
+
+def test_every_account_gets_a_vscode_button_tagged_with_its_active_state():
+    other = {**ACCOUNT, "number": 2, "email": "b@example.com", "active": False}
+    html = render_body(payload(ACCOUNT, other))
+    # The active flag rides along because it decides whether the launch binds
+    # to ~/.claude or to a cswap session profile.
+    assert 'class="code" data-num="1" data-active="1"' in html
+    assert 'class="code" data-num="2" data-active="0"' in html
 
 
 def test_disabled_account_is_marked():

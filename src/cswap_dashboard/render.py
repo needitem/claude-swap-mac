@@ -157,8 +157,16 @@ def _account_card(acc: dict, shared_with: list | None = None) -> str:
         age_note = f'<span class="age">{mins}분 전 측정</span>' if mins else '<span class="age">방금 측정</span>'
 
     action = ""
-    if not active and isinstance(number, int):
-        action = f'<button class="switch" data-num="{number}">전환</button>'
+    if isinstance(number, int):
+        # "VS Code" opens a window pinned to this account; "전환" changes the
+        # default login, which the active account by definition already is.
+        buttons = [
+            f'<button class="code" data-num="{number}" data-active="{int(active)}"'
+            ' title="이 계정으로 VS Code 창 열기">VS Code</button>'
+        ]
+        if not active:
+            buttons.insert(0, f'<button class="switch" data-num="{number}">전환</button>')
+        action = f'<span class="actions">{"".join(buttons)}</span>'
 
     title = escape(alias) if alias else escape(email)
     sub = f'<span class="sub">{escape(email)}</span>' if alias else ""
@@ -290,13 +298,14 @@ header{display:flex; align-items:center; gap:8px; margin-bottom:9px}
 .notice ul{margin:5px 0; padding-left:17px}
 .notice span{color:var(--muted); display:block}
 .notice code{font-size:11px}
-button.switch{
-  margin-left:auto; flex:none; font:inherit; font-size:11.5px; font-weight:600;
+.actions{margin-left:auto; flex:none; display:flex; gap:5px}
+.actions button{
+  font:inherit; font-size:11.5px; font-weight:600;
   padding:3px 11px; border-radius:7px; cursor:pointer;
   border:1px solid var(--line); background:var(--card); color:var(--ink);
 }
-button.switch:hover{border-color:var(--accent); color:var(--accent)}
-button.switch:disabled{opacity:.5; cursor:default}
+.actions button:hover{border-color:var(--accent); color:var(--accent)}
+.actions button:disabled{opacity:.5; cursor:default}
 .row{
   display:grid; grid-template-columns:44px 1fr 34px 62px auto;
   align-items:center; gap:8px; padding:2.5px 0;
@@ -324,10 +333,16 @@ footer{margin-top:5px; min-height:13px}
 {{BODY}}
 <script>
 document.addEventListener('click', function (e) {
-  var b = e.target.closest('button.switch');
+  var b = e.target.closest('.actions button');
   if (!b) return;
-  b.disabled = true; b.textContent = '전환 중…';
-  window.webkit.messageHandlers.cswap.postMessage({action:'switch', number:+b.dataset.num});
+  var isCode = b.classList.contains('code');
+  b.disabled = true;
+  b.textContent = isCode ? '여는 중…' : '전환 중…';
+  window.webkit.messageHandlers.cswap.postMessage({
+    action: isCode ? 'vscode' : 'switch',
+    number: +b.dataset.num,
+    active: b.dataset.active === '1'
+  });
 });
 </script>
 </body></html>"""

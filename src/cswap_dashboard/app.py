@@ -16,7 +16,7 @@ import rumps
 import WebKit
 from Foundation import NSMakeRect, NSObject, NSOperationQueue
 
-from cswap_dashboard import add_account, cswap, render
+from cswap_dashboard import add_account, cswap, render, vscode
 
 ICON = "⇄"
 REFRESH_SECONDS = 60
@@ -55,7 +55,7 @@ class _Bridge(NSObject):
             number = int(body["number"])
         except (KeyError, TypeError, ValueError):
             return
-        self._handler(action, number)
+        self._handler(action, number, bool(body.get("active")))
 
 
 class _NavDelegate(NSObject):
@@ -292,10 +292,16 @@ class DashboardApp(rumps.App):
 
     def _make_switch(self, number: int):
         def callback(_):
-            self._handle_switch("switch", number)
+            self._handle_switch("switch", number, False)
         return callback
 
-    def _handle_switch(self, action: str, number: int):
+    def _handle_switch(self, action: str, number: int, active: bool = False):
+        if action == "vscode":
+            self._background(
+                lambda: vscode.launch(number, active),
+                f"계정 {number}(으)로 VS Code 창을 열었습니다",
+            )
+            return
         if action != "switch":
             return
 

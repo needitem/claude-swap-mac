@@ -118,6 +118,63 @@ sets `CLAUDE_CONFIG_DIR` for one terminal.
 [54464]: https://github.com/anthropics/claude-code/issues/54464
 [34888]: https://github.com/anthropics/claude-code/issues/34888
 
+## Opening VS Code as a given account
+
+Every card has a **VS Code** button. It opens a VS Code window bound to that
+account, with its own `--user-data-dir` (VS Code allows one instance per data
+dir) and a shared `--extensions-dir`, so extensions are not installed twice.
+
+The extension is widely believed to ignore `CLAUDE_CONFIG_DIR`
+([#34888][34888]). It does not. The extension **bundles** Claude Code —
+`extension.js` contains
+
+```js
+function Jo(){ if(process.env.CLAUDE_CONFIG_DIR) return process.env.CLAUDE_CONFIG_DIR
+               return path.join(os.homedir(), ".claude") }
+```
+
+— so it honours the variable like every other surface. What that issue actually
+hit is that VS Code's `claudeCode.environmentVariables` setting only reaches the
+*integrated terminal*, never the extension host. Put the variable in the
+environment of the VS Code **process** and the extension follows it: measured
+here, every child of a VS Code launched that way, extension host included,
+carries it.
+
+Two details that bite:
+
+- The data dir holds a unix socket, so its path has the usual ~103-character
+  limit. `~/.cswap-vscode/<n>`, deliberately short — a path under `/private/tmp`
+  failed with `listen EINVAL`.
+- Only **non-active** accounts get a session profile. cswap refuses to make a
+  second credential copy of the account that is already the default login
+  ("two copies of one account can drift if the server rotates the refresh
+  token"), so the active account's window binds to `~/.claude` — which is what
+  plain VS Code uses anyway. Profiles are materialised by
+  `cswap run <n> -- --version`, so the sharing rules for `settings.json`,
+  `CLAUDE.md` and `skills/` stay upstream's.
+
+### The credential namespace is separable from the config dir
+
+Also in the bundle, deriving the Keychain service name:
+
+```js
+let t = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR,
+    r = t !== undefined ? !t : !process.env.CLAUDE_CONFIG_DIR,
+    n = t !== undefined ? t.normalize("NFC") : configDir(),
+    i = r ? "" : `-${sha256(n).slice(0, 8)}`;   // "Claude Code-credentials[-hash8]"
+```
+
+So the login and the config directory can be split apart:
+
+| Want | Set |
+|---|---|
+| Separate account *and* separate history | `CLAUDE_CONFIG_DIR=<profile>` |
+| Separate history, **same login** | `CLAUDE_CONFIG_DIR=<profile>` + `CLAUDE_SECURESTORAGE_CONFIG_DIR=""` |
+| Same config dir, separate login | `CLAUDE_SECURESTORAGE_CONFIG_DIR=<path>` |
+
+The dashboard does not use the second and third rows yet; they are recorded
+because they are not documented anywhere else.
+
 ## Adding an account
 
 Menu bar **⇄** → **계정 추가…**. No terminal, no copied commands.
