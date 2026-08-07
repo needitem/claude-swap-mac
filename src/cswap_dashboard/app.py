@@ -297,6 +297,23 @@ class DashboardApp(rumps.App):
 
     def _handle_switch(self, action: str, number: int, active: bool = False):
         if action == "vscode":
+            # The first launch for an account creates a brand-new VS Code
+            # profile. Say so before it happens: an unexplained VS Code with no
+            # settings and no GitHub sign-in reads as a wiped installation.
+            if not vscode.is_seeded(vscode.USER_DATA_ROOT / str(number)):
+                if rumps.alert(
+                    title=f"계정 {number} 전용 VS Code 창 만들기",
+                    message=(
+                        "이 계정에 묶인 VS Code 창을 새로 만듭니다.\n\n"
+                        "• 설정·단축키·스니펫과 GitHub 로그인은 기존 프로필에서 복사됩니다\n"
+                        "• 확장은 기존 것을 그대로 공유합니다\n"
+                        "• 만든 뒤에는 기존 VS Code와 별개로 관리됩니다\n\n"
+                        "기존 VS Code는 전혀 바뀌지 않습니다."
+                    ),
+                    ok="만들기",
+                    cancel="취소",
+                ) != 1:
+                    return
             self._background(
                 lambda: vscode.launch(number, active),
                 f"계정 {number}(으)로 VS Code 창을 열었습니다",

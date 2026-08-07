@@ -109,11 +109,87 @@ def ensure_profile(number: int) -> Path:
     return created
 
 
+# What gets copied from the real profile into a new per-account one. Plain
+# files and directories; state.vscdb is handled separately because it is a live
+# SQLite database.
+_SEED_ITEMS = ("settings.json", "keybindings.json", "snippets")
+
+REAL_USER_DIR = Path("~/Library/Application Support/Code/User").expanduser()
+
+
+def is_seeded(user_data: Path) -> bool:
+    return (user_data / "User" / "settings.json").exists()
+
+
+def seed_profile(user_data: Path, source: Path = REAL_USER_DIR) -> None:
+    """Copy the parts of your real VS Code profile worth sharing.
+
+    A bare ``--user-data-dir`` opens a VS Code with no settings, no keybindings
+    and — most alarmingly — no GitHub sign-in, which looks exactly like a wiped
+    installation. Everything here is copied **once**, when the per-account
+    directory is first created; the two diverge afterwards.
+
+    ``globalStorage/state.vscdb`` is where the sign-ins live, encrypted with the
+    ``Code Safe Storage`` Keychain key. That key belongs to the *application*,
+    not to a user-data-dir, so a copied database decrypts normally in the new
+    profile and GitHub stays signed in.
+    """
+    import shutil
+    import sqlite3
+
+    target = user_data / "User"
+    target.mkdir(parents=True, exist_ok=True)
+    if not source.is_dir():
+        return
+
+    for name in _SEED_ITEMS:
+        src, dst = source / name, target / name
+        if dst.exists() or not src.exists():
+            continue
+        try:
+            shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)
+        except OSError:
+            pass  # a missing convenience is not worth failing the launch over
+
+    # Extensions are shared with the real profile (see launch()), and VS Code
+    # writing to that directory from two instances at once is what can corrupt
+    # it. Background auto-update is the only writer the user does not trigger
+    # deliberately, so turn it off in the copies.
+    settings = target / "settings.json"
+    try:
+        import json
+
+        data = json.loads(settings.read_text()) if settings.exists() else {}
+        if not isinstance(data, dict):
+            data = {}
+        data["extensions.autoUpdate"] = False
+        settings.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    except (OSError, ValueError):
+        pass
+
+    db_src = source / "globalStorage" / "state.vscdb"
+    db_dst = target / "globalStorage" / "state.vscdb"
+    if db_src.exists() and not db_dst.exists():
+        db_dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # The backup API, not a file copy: the source may be open in a
+            # running VS Code, and copying it byte-wise could catch a
+            # half-written page or miss the -wal.
+            with sqlite3.connect(f"file:{db_src}?mode=ro", uri=True) as src_db, \
+                 sqlite3.connect(db_dst) as dst_db:
+                src_db.backup(dst_db)
+        except (sqlite3.Error, OSError):
+            db_dst.unlink(missing_ok=True)  # better empty than half-copied
+
+
 def launch(number: int, active: bool) -> Path:
     """Open a VS Code window bound to this account. Returns the user-data-dir."""
     binary = find_vscode()
     user_data = USER_DATA_ROOT / str(number)
+    first_time = not is_seeded(user_data)
     user_data.mkdir(parents=True, exist_ok=True)
+    if first_time:
+        seed_profile(user_data)
 
     env = dict(os.environ)
     if active:

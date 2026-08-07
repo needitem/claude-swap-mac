@@ -140,7 +140,23 @@ environment of the VS Code **process** and the extension follows it: measured
 here, every child of a VS Code launched that way, extension host included,
 carries it.
 
-Two details that bite:
+**A new per-account window is seeded from your real profile.** A bare
+`--user-data-dir` opens a VS Code with no settings and, most alarmingly, no
+GitHub sign-in — indistinguishable from a wiped installation. So on first
+creation the app copies `settings.json`, `keybindings.json`, `snippets/` and
+`globalStorage/state.vscdb` across, and asks before doing it. The database is
+where sign-ins live, encrypted with the `Code Safe Storage` Keychain key; that
+key belongs to the *application*, not to a data dir, so a copy decrypts
+normally and GitHub stays signed in. The profiles diverge after that first
+copy. Your existing VS Code is never modified.
+
+Extensions are shared rather than reinstalled, which is the one real hazard
+here: two VS Code instances writing that directory at once can corrupt
+`extensions.json`. Background auto-update is the only writer you do not trigger
+yourself, so the seeded settings set `"extensions.autoUpdate": false`. Install
+and update extensions from your normal window.
+
+Two more details that bite:
 
 - The data dir holds a unix socket, so its path has the usual ~103-character
   limit. `~/.cswap-vscode/<n>`, deliberately short — a path under `/private/tmp`
