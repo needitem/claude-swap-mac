@@ -86,6 +86,38 @@ The active account is outlined. Any other account gets a **전환** button; it
 runs `cswap switch N` and repaints. Accounts held out of rotation with
 `cswap disable` are dimmed and marked **제외**.
 
+## Accounts that share one quota
+
+If two accounts show a **쿼터 공유** chip, they have the same
+`organizationUuid` — and rate limits appear to pool per organization rather
+than per account. Users report that accounts sharing an organization show
+identical utilisation *and* identical reset times, while accounts in different
+organizations are fully independent
+([anthropics/claude-code#41886][41886]; [#54464][54464] and [#34888][34888] are
+the same thing seen from the confusing end). Anthropic never confirmed any of
+it — all three issues were auto-closed as stale — so the dashboard warns rather
+than asserts.
+
+It is worth warning about precisely because a dashboard is where the illusion
+would form: two names, two cards, two sets of bars that happen to move
+together. Switching between such accounts buys you nothing, and nothing in the
+numbers says so unless you know where to look.
+
+Check it yourself:
+
+```bash
+cswap list --json | python3 -c "import json,sys; [print(a['number'], a.get('organizationUuid'), a['email']) for a in json.load(sys.stdin)['accounts']]"
+```
+
+Related: the VS Code extension ignores `CLAUDE_CONFIG_DIR` ([#34888][34888]),
+so per-workspace account separation does not work there even though the
+terminal CLI honours it. For genuinely parallel accounts use `cswap run`, which
+sets `CLAUDE_CONFIG_DIR` for one terminal.
+
+[41886]: https://github.com/anthropics/claude-code/issues/41886
+[54464]: https://github.com/anthropics/claude-code/issues/54464
+[34888]: https://github.com/anthropics/claude-code/issues/34888
+
 ## Adding an account
 
 Menu bar **⇄** → **계정 추가…**. No terminal, no copied commands.

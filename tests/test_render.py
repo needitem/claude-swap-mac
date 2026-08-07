@@ -90,3 +90,44 @@ def test_content_height_grows_with_accounts_and_stays_bounded():
     assert 200 <= one < two <= 900
     assert content_height(payload(*[{**ACCOUNT, "number": n} for n in range(20)])) == 900
     assert content_height(None, "boom") == 240
+
+
+ORG_A = "34d83544-a7e0-0000-0000-000000000000"
+ORG_B = "1b8fb384-9be0-0000-0000-000000000000"
+
+
+def acct(number, org, **kw):
+    return {**ACCOUNT, "number": number, "email": f"a{number}@example.com",
+            "active": number == 1, "organizationUuid": org, **kw}
+
+
+def test_accounts_in_one_org_are_flagged_as_sharing_quota():
+    html = render_body(payload(acct(1, ORG_A), acct(2, ORG_A), acct(3, ORG_B)))
+    assert html.count("쿼터 공유") == 2          # only the two in ORG_A
+    assert "같은 조직의 계정은 한도를 공유합니다" in html
+    assert "a3@example.com 와(과)" not in html   # the lone account is not implicated
+
+
+def test_no_notice_when_every_account_is_its_own_org():
+    html = render_body(payload(acct(1, ORG_A), acct(2, ORG_B)))
+    assert "쿼터 공유" not in html
+    assert "같은 조직의 계정은" not in html
+
+
+def test_accounts_without_an_org_uuid_are_never_grouped():
+    html = render_body(payload(acct(1, ""), {**ACCOUNT, "number": 2, "active": False}))
+    assert "쿼터 공유" not in html
+
+
+def test_shared_quota_groups_returns_only_real_groups():
+    from cswap_dashboard.render import shared_quota_groups
+
+    groups = shared_quota_groups([acct(1, ORG_A), acct(2, ORG_A), acct(3, ORG_B), "junk"])
+    assert list(groups) == [ORG_A]
+    assert [a["number"] for a in groups[ORG_A]] == [1, 2]
+
+
+def test_the_notice_costs_height():
+    plain = content_height(payload(acct(1, ORG_A), acct(2, ORG_B)))
+    shared = content_height(payload(acct(1, ORG_A), acct(2, ORG_A)))
+    assert shared > plain

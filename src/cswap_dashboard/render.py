@@ -63,7 +63,51 @@ def _window_row(label: str, window: dict | None, *, stale: bool = False) -> str:
 </div>"""
 
 
-def _account_card(acc: dict) -> str:
+def shared_quota_groups(accounts: list) -> dict[str, list]:
+    """Map each ``organizationUuid`` held by more than one account to its members.
+
+    Rate limits appear to pool per organization rather than per account: users
+    report that accounts sharing an ``organizationUuid`` show identical
+    utilisation *and* identical reset times, while accounts in different
+    organizations are fully independent (anthropics/claude-code#41886, with
+    #54464 and #34888 as the confused-looking symptoms). Anthropic never
+    confirmed it — every one of those issues was auto-closed as stale — so this
+    is a warning, not a verdict.
+
+    It matters here because a dashboard is exactly where the illusion would
+    form: two cards, two names, two sets of bars that happen to move together.
+    Switching between such accounts buys nothing, and the numbers give no hint
+    unless you are told where to look.
+    """
+    groups: dict[str, list] = {}
+    for acc in accounts:
+        if not isinstance(acc, dict):
+            continue
+        uuid = acc.get("organizationUuid")
+        if isinstance(uuid, str) and uuid:
+            groups.setdefault(uuid, []).append(acc)
+    return {uuid: members for uuid, members in groups.items() if len(members) > 1}
+
+
+def _shared_notice(groups: dict[str, list]) -> str:
+    if not groups:
+        return ""
+    lines = []
+    for members in groups.values():
+        names = ", ".join(
+            escape(str(m.get("alias") or m.get("email") or m.get("number"))) for m in members
+        )
+        lines.append(f"<li>{names}</li>")
+    return (
+        '<section class="notice"><b>같은 조직의 계정은 한도를 공유합니다</b>'
+        "<ul>" + "".join(lines) + "</ul>"
+        "<span>아래 계정들은 <code>organizationUuid</code>가 같습니다. 사용량이 함께 "
+        "움직이고 리셋 시각도 같다면 전환해도 여유가 생기지 않습니다. "
+        "(anthropics/claude-code#41886 — Anthropic 공식 확인은 없습니다)</span></section>"
+    )
+
+
+def _account_card(acc: dict, shared_with: list | None = None) -> str:
     number = acc.get("number")
     email = str(acc.get("email") or "?")
     alias = acc.get("alias")
@@ -89,6 +133,12 @@ def _account_card(acc: dict) -> str:
         chips.append(f'<span class="chip bad">{escape(status)}</span>')
     if stale:
         chips.append('<span class="chip stale-chip">최근 값</span>')
+    if shared_with:
+        peers = ", ".join(str(p.get("email") or p.get("number")) for p in shared_with)
+        chips.append(
+            f'<span class="chip shared" title="{escape(peers)} 와(과) 같은 조직 — '
+            '한도를 함께 씁니다">쿼터 공유</span>'
+        )
 
     rows = [
         _window_row("5시간", (usage or {}).get("fiveHour"), stale=stale),
@@ -143,7 +193,15 @@ def render_body(payload: dict | None, error: str | None = None) -> str:
                 "<pre>Claude Code에 로그인한 뒤 터미널에서:\n\n    cswap add</pre></div>"
             )
         else:
-            body = "".join(_account_card(a) for a in accounts if isinstance(a, dict))
+            groups = shared_quota_groups(accounts)
+            cards = []
+            for acc in accounts:
+                if not isinstance(acc, dict):
+                    continue
+                members = groups.get(acc.get("organizationUuid") or "", [])
+                peers = [m for m in members if m.get("number") != acc.get("number")]
+                cards.append(_account_card(acc, peers))
+            body = _shared_notice(groups) + "".join(cards)
     return body
 
 
@@ -164,6 +222,9 @@ def content_height(payload: dict | None, error: str | None = None) -> int:
     if error or not accounts:
         return 240
     total = _CHROME
+    groups = shared_quota_groups(accounts)
+    if groups:
+        total += 78 + 16 * sum(len(m) for m in groups.values())
     for acc in accounts:
         if not isinstance(acc, dict):
             continue
@@ -220,6 +281,15 @@ header{display:flex; align-items:center; gap:8px; margin-bottom:9px}
 .chip.active{background:var(--accent); color:#fff}
 .chip.bad{background:var(--spent); color:#fff}
 .chip.pace{background:transparent; color:var(--danger); border:1px solid currentColor; margin-left:6px}
+.chip.shared{background:var(--warn); color:#fff}
+.notice{
+  background:var(--card); border:1px solid var(--warn); border-left-width:3px;
+  border-radius:9px; padding:9px 12px; margin-bottom:10px; font-size:11.5px;
+}
+.notice b{font-size:12.5px}
+.notice ul{margin:5px 0; padding-left:17px}
+.notice span{color:var(--muted); display:block}
+.notice code{font-size:11px}
 button.switch{
   margin-left:auto; flex:none; font:inherit; font-size:11.5px; font-weight:600;
   padding:3px 11px; border-radius:7px; cursor:pointer;

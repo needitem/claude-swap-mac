@@ -92,6 +92,7 @@ DEMO = {
     "accounts": [
         {
             "number": 1, "email": "personal@example.com", "active": True, "usageStatus": "ok",
+            "organizationUuid": "11111111-1111-1111-1111-111111111111",
             "usage": {
                 "fiveHour": {"pct": 43.0, "countdown": "1h 08m", "clock": "18:10"},
                 "sevenDay": {"pct": 29.0, "countdown": "11h 27m", "clock": "Aug 8 01:00"},
@@ -102,6 +103,7 @@ DEMO = {
         {
             "number": 2, "alias": "work", "email": "work@example.com",
             "active": False, "usageStatus": "ok",
+            "organizationUuid": "22222222-2222-2222-2222-222222222222",
             "usage": {
                 "fiveHour": {"pct": 88.0, "countdown": "42m", "clock": "14:20"},
                 "sevenDay": {"pct": 74.0, "countdown": "3d 04h", "clock": "Aug 11 09:00",
@@ -110,8 +112,10 @@ DEMO = {
             "usageAgeSeconds": 260.0,
         },
         {
+            # Same org as #2 on purpose: this is what pooled quota looks like.
             "number": 3, "email": "backup@example.com", "active": False,
             "disabled": True, "usageStatus": "ok",
+            "organizationUuid": "22222222-2222-2222-2222-222222222222",
             "usage": {
                 "fiveHour": {"pct": 0.0, "countdown": "5h 00m", "clock": "18:45"},
                 "sevenDay": {"pct": 12.0, "countdown": "6d 02h", "clock": "Aug 13 22:00"},
