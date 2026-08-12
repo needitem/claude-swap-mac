@@ -23,7 +23,7 @@ def test_renders_every_window_with_remaining_and_reset():
     assert "5시간" in html and "7일" in html and "Fable" in html
     assert "42%" in html and "58% 남음" in html  # used and remaining
     assert "1h 08m 후" in html and "(18:10)" in html
-    assert "사용 중" in html
+    assert "기본 로그인" in html
 
 
 def test_band_colours_track_utilisation():
@@ -149,3 +149,22 @@ def test_vscode_tooltip_says_whether_the_window_is_pinned():
     html = render_body(payload(ACCOUNT, other))
     assert "기본 로그인으로 VS Code 창 열기" in html   # account 1, active
     assert "이 계정에 고정된 VS Code 창 열기" in html   # account 2, inactive
+
+
+def test_active_chip_says_default_login_not_in_use():
+    """A pinned window spends its own account regardless of the default, so
+    "사용 중" would be an outright lie whenever one exists."""
+    html = render_body(payload(ACCOUNT))
+    assert "기본 로그인" in html
+    assert ">사용 중<" not in html
+
+
+def test_pinned_windows_are_surfaced_per_account():
+    other = {**ACCOUNT, "number": 2, "email": "b@example.com", "active": False}
+    html = render_body(payload(ACCOUNT, other), pinned={2: 1})
+    assert "고정 창 1" in html
+    assert html.count("고정 창") == 1  # account 1 has none
+
+
+def test_no_pinned_chip_without_pinned_windows():
+    assert "고정 창" not in render_body(payload(ACCOUNT))

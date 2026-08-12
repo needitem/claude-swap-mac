@@ -107,7 +107,7 @@ def _shared_notice(groups: dict[str, list]) -> str:
     )
 
 
-def _account_card(acc: dict, shared_with: list | None = None) -> str:
+def _account_card(acc: dict, shared_with: list | None = None, pinned: int = 0) -> str:
     number = acc.get("number")
     email = str(acc.get("email") or "?")
     alias = acc.get("alias")
@@ -126,7 +126,18 @@ def _account_card(acc: dict, shared_with: list | None = None) -> str:
 
     chips = []
     if active:
-        chips.append('<span class="chip active">사용 중</span>')
+        # Deliberately not "사용 중": this only means ~/.claude points here. A
+        # window pinned to another account is being spent right now regardless.
+        chips.append(
+            '<span class="chip active" title="~/.claude 가 이 계정입니다 — '
+            '고정되지 않은 창과 터미널이 이 계정을 씁니다">기본 로그인</span>'
+        )
+    if pinned:
+        chips.append(
+            f'<span class="chip pinned" title="이 계정에 고정된 VS Code 창 {pinned}개 — '
+            '기본 로그인과 무관하게 이 계정을 소모하며, 자동 전환도 이 창은 못 움직입니다">'
+            f'고정 창 {pinned}</span>'
+        )
     if disabled:
         chips.append('<span class="chip off" title="자동 전환 대상에서 제외됨">제외</span>')
     if status and status != "ok":
@@ -192,7 +203,8 @@ def _account_card(acc: dict, shared_with: list | None = None) -> str:
 </section>"""
 
 
-def render_body(payload: dict | None, error: str | None = None) -> str:
+def render_body(payload: dict | None, error: str | None = None,
+                pinned: dict | None = None) -> str:
     """Just the cards — what a refresh swaps into ``document.body``.
 
     Refreshes replace the body rather than reloading the document so the
@@ -211,20 +223,22 @@ def render_body(payload: dict | None, error: str | None = None) -> str:
             )
         else:
             groups = shared_quota_groups(accounts)
+            pinned = pinned or {}
             cards = []
             for acc in accounts:
                 if not isinstance(acc, dict):
                     continue
                 members = groups.get(acc.get("organizationUuid") or "", [])
                 peers = [m for m in members if m.get("number") != acc.get("number")]
-                cards.append(_account_card(acc, peers))
+                cards.append(_account_card(acc, peers, pinned.get(acc.get("number"), 0)))
             body = _shared_notice(groups) + "".join(cards)
     return body
 
 
-def render(payload: dict | None, error: str | None = None) -> str:
+def render(payload: dict | None, error: str | None = None,
+           pinned: dict | None = None) -> str:
     """Full HTML document for the dashboard's first load."""
-    return _DOC.replace("{{BODY}}", render_body(payload, error))
+    return _DOC.replace("{{BODY}}", render_body(payload, error, pinned))
 
 
 # Card chrome (header + padding + footer + margin) and one usage row, in points,
@@ -299,6 +313,7 @@ header{display:flex; align-items:center; gap:8px; margin-bottom:9px}
 .chip.bad{background:var(--spent); color:#fff}
 .chip.pace{background:transparent; color:var(--danger); border:1px solid currentColor; margin-left:6px}
 .chip.shared{background:var(--warn); color:#fff}
+.chip.pinned{background:var(--accent); color:#fff}
 .notice{
   background:var(--card); border:1px solid var(--warn); border-left-width:3px;
   border-radius:9px; padding:9px 12px; margin-bottom:10px; font-size:11.5px;

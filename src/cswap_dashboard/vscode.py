@@ -182,6 +182,38 @@ def seed_profile(user_data: Path, source: Path = REAL_USER_DIR) -> None:
             db_dst.unlink(missing_ok=True)  # better empty than half-copied
 
 
+def pinned_windows() -> dict[int, int]:
+    """Account number -> how many VS Code windows are currently pinned to it.
+
+    "사용 중" on a card means *default login*, not "the account your work is
+    actually being billed to". Those differ the moment a pinned window exists:
+    it keeps using its own account no matter what the default is, so the
+    dashboard can say account 2 is in use while every request you make goes to
+    account 1. Counting the windows is the cheapest way to stop that being
+    invisible.
+
+    Detected from the command line rather than the environment: the windows this
+    app opens carry ``--user-data-dir <root>/<n>``, so no per-process env read
+    is needed.
+    """
+    try:
+        listing = subprocess.run(
+            ["ps", "-Ao", "command="], capture_output=True, text=True, timeout=10, check=False
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    counts: dict[int, int] = {}
+    root = str(USER_DATA_ROOT)
+    for line in listing.splitlines():
+        # Only the main process; VS Code's helpers repeat the flag.
+        if "/MacOS/Code" not in line or f"--user-data-dir {root}/" not in line:
+            continue
+        tail = line.split(f"--user-data-dir {root}/", 1)[1].split()[0]
+        if tail.isdigit():
+            counts[int(tail)] = counts.get(int(tail), 0) + 1
+    return counts
+
+
 def launch(number: int, active: bool) -> Path:
     """Open a VS Code window bound to this account. Returns the user-data-dir."""
     binary = find_vscode()

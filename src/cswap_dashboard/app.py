@@ -208,11 +208,12 @@ class Dashboard:
         """Repaint. Cheap enough to call on every poll."""
         if self._webview is None:
             return
+        pinned = (payload or {}).get("_pinned") or {}
         if not self._loaded:
-            self._webview.loadHTMLString_baseURL_(render.render(payload, error), None)
+            self._webview.loadHTMLString_baseURL_(render.render(payload, error, pinned), None)
             self._loaded = True
             return
-        body = json.dumps(render.render_body(payload, error))
+        body = json.dumps(render.render_body(payload, error, pinned))
         self._webview.evaluateJavaScript_completionHandler_(
             f"document.body.innerHTML = {body};", None
         )
@@ -243,6 +244,7 @@ class DashboardApp(rumps.App):
         def work():
             try:
                 payload, error = cswap.list_accounts(), None
+                payload = dict(payload, _pinned=vscode.pinned_windows())
             except cswap.CswapError as exc:
                 payload, error = None, str(exc)
             except Exception as exc:  # never let a poll kill the app

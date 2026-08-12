@@ -82,9 +82,15 @@ burn rate for the week: on pace to run out before it resets. `claude-swap`
 suppresses this for the first day after a reset, when the comparison is
 meaningless.
 
-The active account is outlined. Any other account gets a **전환** button; it
-runs `cswap switch N` and repaints. Accounts held out of rotation with
-`cswap disable` are dimmed and marked **제외**.
+**기본 로그인** marks the account `~/.claude` points at — deliberately not "in
+use". Unpinned windows and terminals follow it, but a window pinned with
+`CLAUDE_CONFIG_DIR` spends its own account no matter what the default is, so
+"in use" would be a lie the moment one exists. Cards carrying such windows show
+**고정 창 N** instead, which is where your requests are actually going.
+
+Any non-default account gets a **전환** button; it runs `cswap switch N` and
+repaints. Accounts held out of rotation with `cswap disable` are dimmed and
+marked **제외**.
 
 ## Accounts that share one quota
 
