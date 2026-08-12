@@ -109,10 +109,9 @@ Check it yourself:
 cswap list --json | python3 -c "import json,sys; [print(a['number'], a.get('organizationUuid'), a['email']) for a in json.load(sys.stdin)['accounts']]"
 ```
 
-Related: the VS Code extension ignores `CLAUDE_CONFIG_DIR` ([#34888][34888]),
-so per-workspace account separation does not work there even though the
-terminal CLI honours it. For genuinely parallel accounts use `cswap run`, which
-sets `CLAUDE_CONFIG_DIR` for one terminal.
+(#34888 also claims the VS Code extension ignores `CLAUDE_CONFIG_DIR`. It does
+not — see [Opening VS Code as a given account](#opening-vs-code-as-a-given-account)
+for what that issue actually hit.)
 
 [41886]: https://github.com/anthropics/claude-code/issues/41886
 [54464]: https://github.com/anthropics/claude-code/issues/54464
