@@ -140,3 +140,12 @@ def test_the_notice_costs_height():
     plain = content_height(payload(acct(1, ORG_A), acct(2, ORG_B)))
     shared = content_height(payload(acct(1, ORG_A), acct(2, ORG_A)))
     assert shared > plain
+
+
+def test_vscode_tooltip_says_whether_the_window_is_pinned():
+    """An active account's window cannot be pinned — it follows ~/.claude —
+    and the UI has to admit that rather than implying otherwise."""
+    other = {**ACCOUNT, "number": 2, "email": "b@example.com", "active": False}
+    html = render_body(payload(ACCOUNT, other))
+    assert "기본 로그인으로 VS Code 창 열기" in html   # account 1, active
+    assert "이 계정에 고정된 VS Code 창 열기" in html   # account 2, inactive

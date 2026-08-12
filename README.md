@@ -140,6 +140,21 @@ environment of the VS Code **process** and the extension follows it: measured
 here, every child of a VS Code launched that way, extension host included,
 carries it.
 
+**Only a non-active account can be pinned.** cswap refuses to copy the
+credentials of the account that is already the default login — two copies of one
+account can drift when the server rotates the refresh token — so there is no
+profile to bind an active account's window to. Its window follows `~/.claude`
+and will move with the *next* switch. The button's tooltip and the confirmation
+dialog say which of the two you are getting. To pin an account, open it while it
+is **not** the active one.
+
+**A running window does not notice a switch.** The extension caches the
+credentials it activated with, and on macOS the Keychain read is cached on top
+of that, so after `전환` an already-open VS Code keeps reporting the previous
+account. Reload the window (⌘⇧P → *Developer: Reload Window*) or reopen the
+Claude tab. Windows pinned with `CLAUDE_CONFIG_DIR` are unaffected — nothing
+about them changes when the default login does.
+
 **A new per-account window is seeded from your real profile.** A bare
 `--user-data-dir` opens a VS Code with no settings and, most alarmingly, no
 GitHub sign-in — indistinguishable from a wiped installation. So on first

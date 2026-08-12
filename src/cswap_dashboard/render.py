@@ -160,9 +160,18 @@ def _account_card(acc: dict, shared_with: list | None = None) -> str:
     if isinstance(number, int):
         # "VS Code" opens a window pinned to this account; "전환" changes the
         # default login, which the active account by definition already is.
+        # Only a non-active account can be pinned: cswap refuses to copy the
+        # credentials of the account that is already the default login, so an
+        # active account's window can only follow ~/.claude — and will drift to
+        # whatever you switch to next. Say which one you are getting.
+        tip = (
+            "기본 로그인으로 VS Code 창 열기 — 계정을 전환하면 이 창도 따라갑니다"
+            if active
+            else "이 계정에 고정된 VS Code 창 열기"
+        )
         buttons = [
             f'<button class="code" data-num="{number}" data-active="{int(active)}"'
-            ' title="이 계정으로 VS Code 창 열기">VS Code</button>'
+            f' title="{tip}">VS Code</button>'
         ]
         if not active:
             buttons.insert(0, f'<button class="switch" data-num="{number}">전환</button>')
