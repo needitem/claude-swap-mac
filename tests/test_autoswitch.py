@@ -141,3 +141,27 @@ def test_threshold_parses_a_plain_cli_answer(monkeypatch):
 
     monkeypatch.setattr(cswap, "run_plain", boom)
     assert autoswitch.configured_threshold() is None
+
+
+def test_stop_does_not_wait_forever_on_a_deaf_child(monkeypatch, tmp_path):
+    """`cswap auto` sleeps between polls and can outlive a SIGTERM; on logout
+    the app does not have the time to be polite indefinitely."""
+    import signal as signal_mod
+
+    script = (
+        "import signal,time,sys\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "sys.stdout.write('{\"event\":\"poll\"}\\n'); sys.stdout.flush()\n"
+        "time.sleep(120)\n"
+    )
+    run_with(monkeypatch, tmp_path, script)
+    monkeypatch.setattr(autoswitch.AutoSwitch, "STOP_GRACE_S", 0.5)
+
+    engine = autoswitch.AutoSwitch(lambda e: None)
+    engine.start()
+    time.sleep(1.0)
+    started = time.monotonic()
+    engine.stop()
+    assert time.monotonic() - started < 5  # escalated to SIGKILL, did not hang
+    assert not engine.running
+    del signal_mod

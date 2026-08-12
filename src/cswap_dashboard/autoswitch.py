@@ -96,6 +96,13 @@ class AutoSwitch:
             proc = self._proc
         threading.Thread(target=self._pump, args=(proc,), daemon=True).start()
 
+    # `cswap auto` spends most of its life asleep between polls and does not
+    # wake instantly on SIGTERM — measured at over 10s. On logout or shutdown
+    # the whole app is on a clock, so give it a short grace period and then
+    # insist. Killing it is safe: the engine only polls, and its state file is
+    # written atomically under a lock that a dying process releases.
+    STOP_GRACE_S = 5.0
+
     def stop(self) -> None:
         with self._lock:
             proc, self._proc = self._proc, None
@@ -103,9 +110,13 @@ class AutoSwitch:
             return
         proc.terminate()
         try:
-            proc.wait(timeout=10)
+            proc.wait(timeout=self.STOP_GRACE_S)
         except subprocess.TimeoutExpired:
             proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass  # nothing left to try; the exit is imminent regardless
 
     def _pump(self, proc: subprocess.Popen) -> None:
         for line in proc.stdout or ():

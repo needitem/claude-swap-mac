@@ -8,6 +8,8 @@ single script-message channel back for the "전환" buttons.
 from __future__ import annotations
 
 import json
+import os
+import signal
 import threading
 from pathlib import Path
 
@@ -32,6 +34,51 @@ def _on_main(fn, *args) -> None:
 PREFS_PATH = Path("~/.claude-swap-backup/cswap-dashboard.json").expanduser()
 
 
+TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+def block_termination_signals() -> bool:
+    """Block SIGTERM/SIGINT — **before any other thread exists**.
+
+    ``pthread_sigmask`` applies to the calling thread, and new threads inherit
+    the mask of their creator. Doing this after the first worker thread has
+    started leaves that thread accepting the signal, and the kernel is free to
+    deliver it there: default action, process gone, no cleanup. (Measured
+    exactly that way — the app died cleanly and left its ``cswap auto`` child
+    orphaned.) So this belongs at the very top of ``main()``.
+    """
+    try:
+        signal.pthread_sigmask(signal.SIG_BLOCK, set(TERMINATION_SIGNALS))
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
+def start_termination_watcher(cleanup) -> None:
+    """Wait for a blocked termination signal, run ``cleanup``, then exit.
+
+    ``signal.signal`` is not enough here: its handler only runs when the
+    interpreter next executes bytecode, and this process spends its life parked
+    inside AppKit's run loop. A dedicated thread in ``sigwait`` works no matter
+    what the main thread is doing.
+
+    It matters because the auto-switch engine is a *child process*: without
+    this, `pkill`, a logout or a restart leaves `cswap auto` running with
+    nothing supervising it, and the next launch would start a second one.
+    """
+
+    def wait_and_clean():
+        signal.sigwait(list(TERMINATION_SIGNALS))
+        try:
+            cleanup()
+        finally:
+            # The run loop owns the main thread, so unwinding normally is not
+            # available: exit once the child is dealt with.
+            os._exit(0)
+
+    threading.Thread(target=wait_and_clean, daemon=True).start()
+
+
 def _load_prefs() -> dict:
     try:
         data = json.loads(PREFS_PATH.read_text())
@@ -49,6 +96,10 @@ def _save_prefs(**changes) -> None:
         PREFS_PATH.write_text(json.dumps(prefs, indent=2))
     except OSError:
         pass
+
+
+def _log(message: str) -> None:
+    print(message, flush=True)  # the bundle redirects stdout to the app log
 
 
 def _local_part(email: str) -> str:
@@ -233,8 +284,14 @@ class DashboardApp(rumps.App):
         self.auto = autoswitch.AutoSwitch(self._on_auto_event)
         self.menu = ["대시보드 열기"]
         self.refresh(None)
+        start_termination_watcher(self.auto.stop)
         if _load_prefs().get("auto_switch"):
-            self.auto.start()
+            # An engine left over from a killed run is still doing the job;
+            # starting a second one would only double the usage polling.
+            if autoswitch.external_engine_running():
+                _log("auto-switch already running from a previous session")
+            else:
+                self.auto.start()
 
     # ---- data ------------------------------------------------------------
     def _fetch(self, then=None):
@@ -569,6 +626,9 @@ def main() -> int:
     # rumps never sets an activation policy, so a framework Python would park a
     # "Python" icon in the Dock. Accessory keeps the status item and lets the
     # dashboard window show, without a Dock icon or a Cmd-Tab entry.
+    # Before anything spawns a thread: see block_termination_signals().
+    if not block_termination_signals():
+        _log("could not block termination signals; the engine may be orphaned on kill")
     AppKit.NSApplication.sharedApplication().setActivationPolicy_(
         AppKit.NSApplicationActivationPolicyAccessory
     )

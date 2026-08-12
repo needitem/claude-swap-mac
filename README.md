@@ -240,7 +240,16 @@ that is deliberately tight.
 
 The preference persists in `~/.claude-swap-backup/cswap-dashboard.json` and the
 engine starts with the app. Quitting from the menu stops it — that is why the
-menu has its own **종료** rather than the default one.
+menu has its own **종료** rather than the default one — and so does a SIGTERM
+from `pkill`, a logout or a restart, so the child is never left running with
+nothing supervising it. If a previous run was `kill -9`'d and its engine did
+survive, the next launch notices and declines to start a second one.
+
+Getting that right needed the signal mask installed *before the first worker
+thread exists*: `pthread_sigmask` applies to the calling thread and new threads
+inherit it, so blocking late leaves an earlier thread accepting SIGTERM, and the
+kernel is free to deliver it there — default action, process gone, child
+orphaned. Measured exactly that way before it was moved to the top of `main()`.
 
 **Windows pinned to an account do not participate.** A VS Code window opened
 with `CLAUDE_CONFIG_DIR` uses its own account regardless of the default login,
