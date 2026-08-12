@@ -205,6 +205,42 @@ So the login and the config directory can be split apart:
 The dashboard does not use the second and third rows yet; they are recorded
 because they are not documented anywhere else.
 
+## Auto-switching
+
+Menu bar **⇄** → **자동 전환**. When the active account's binding window
+crosses the threshold, it switches to the account with the most headroom —
+before you hit the limit, not after.
+
+The engine is upstream's: the toggle supervises `cswap auto --json` as a child
+process and reads its event stream (`poll`, `switch`, `no-switch`,
+`account-quarantined`, `all-exhausted`, `error`). Nothing about the policy lives
+here, so this toggle and `cswap auto` in a terminal are the same engine with the
+same configuration, and there is no second polling loop competing for the usage
+API budget. A `switch` repaints the dashboard and posts a notification; `poll`
+and `no-switch` pass quietly.
+
+Policy stays in cswap's settings:
+
+```bash
+cswap config set autoswitch.threshold 80      # switch earlier
+cswap config set autoswitch.strategy consume-first
+cswap config                                  # see everything
+```
+
+The menu label shows the current threshold. If a `cswap auto` is already
+running in a terminal, turning this on asks first: two engines share their state
+file safely under a lock, but they double the usage polling against a budget
+that is deliberately tight.
+
+The preference persists in `~/.claude-swap-backup/cswap-dashboard.json` and the
+engine starts with the app. Quitting from the menu stops it — that is why the
+menu has its own **종료** rather than the default one.
+
+**Windows pinned to an account do not participate.** A VS Code window opened
+with `CLAUDE_CONFIG_DIR` uses its own account regardless of the default login,
+so auto-switching cannot move it — deliberate, but it means several pinned
+windows leave correspondingly less for the engine to balance.
+
 ## Adding an account
 
 Menu bar **⇄** → **계정 추가…**. No terminal, no copied commands.

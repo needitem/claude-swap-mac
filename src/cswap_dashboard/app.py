@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 
 import AppKit
 import objc
@@ -16,7 +17,7 @@ import rumps
 import WebKit
 from Foundation import NSMakeRect, NSObject, NSOperationQueue
 
-from cswap_dashboard import add_account, cswap, render, vscode
+from cswap_dashboard import add_account, autoswitch, cswap, render, vscode
 
 ICON = "⇄"
 REFRESH_SECONDS = 60
@@ -26,6 +27,28 @@ WINDOW_WIDTH = 560
 def _on_main(fn, *args) -> None:
     """Run ``fn`` on the main thread; AppKit tolerates nothing else."""
     NSOperationQueue.mainQueue().addOperationWithBlock_(lambda: fn(*args))
+
+
+PREFS_PATH = Path("~/.claude-swap-backup/cswap-dashboard.json").expanduser()
+
+
+def _load_prefs() -> dict:
+    try:
+        data = json.loads(PREFS_PATH.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_prefs(**changes) -> None:
+    """Our own display preferences only. Auto-switch *policy* stays in cswap's
+    settings.json, so the CLI and this toggle never disagree."""
+    prefs = _load_prefs() | changes
+    try:
+        PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PREFS_PATH.write_text(json.dumps(prefs, indent=2))
+    except OSError:
+        pass
 
 
 def _local_part(email: str) -> str:
@@ -206,8 +229,11 @@ class DashboardApp(rumps.App):
         # Deferred until the first payload lands so the window never appears
         # empty and then jumps.
         self._opened_once = False
+        self.auto = autoswitch.AutoSwitch(self._on_auto_event)
         self.menu = ["대시보드 열기"]
         self.refresh(None)
+        if _load_prefs().get("auto_switch"):
+            self.auto.start()
 
     # ---- data ------------------------------------------------------------
     def _fetch(self, then=None):
@@ -275,10 +301,14 @@ class DashboardApp(rumps.App):
             if acc.get("active"):
                 item.set_callback(None)  # already there; nothing to do
             items.append(item)
-        items += [None,
+        threshold = autoswitch.configured_threshold()
+        auto_label = "자동 전환" + (f" ({threshold:.0f}% 도달 시)" if threshold else "")
+        auto_item = rumps.MenuItem(auto_label, callback=self.toggle_auto)
+        auto_item.state = 1 if self.auto.running else 0
+        items += [None, auto_item,
                   rumps.MenuItem("계정 추가…", callback=self.add_account),
                   rumps.MenuItem("새로고침", callback=self.refresh),
-                  rumps.MenuItem("종료", callback=rumps.quit_application)]
+                  rumps.MenuItem("종료", callback=self.quit)]
         for item in items:
             self.menu.add(item) if item is not None else self.menu.add(rumps.separator)
 
@@ -341,6 +371,49 @@ class DashboardApp(rumps.App):
             _on_main(self._after_switch, err)
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ---- auto-switch ------------------------------------------------------
+    def toggle_auto(self, _=None):
+        if self.auto.running:
+            self.auto.stop()
+            _save_prefs(auto_switch=False)
+            rumps.notification("Claude Swap", "", "자동 전환을 껐습니다")
+        else:
+            if autoswitch.external_engine_running():
+                if rumps.alert(
+                    title="이미 실행 중인 자동 전환이 있습니다",
+                    message=(
+                        "터미널에서 `cswap auto`가 돌고 있는 것 같습니다.\n\n"
+                        "둘을 같이 돌려도 상태 파일은 잠금으로 공유되어 안전하지만, "
+                        "사용량 조회가 두 배가 되어 레이트 리밋 예산을 낭비합니다."
+                    ),
+                    ok="그래도 켜기",
+                    cancel="취소",
+                ) != 1:
+                    return
+            try:
+                self.auto.start()
+            except Exception as exc:
+                rumps.alert("자동 전환을 켤 수 없음", f"{exc}")
+                return
+            _save_prefs(auto_switch=True)
+            rumps.notification("Claude Swap", "", "자동 전환을 켰습니다")
+        self._rebuild_menu()
+
+    def _on_auto_event(self, event):
+        """Called from the reader thread — hop to the main thread for any UI."""
+        _on_main(self._handle_auto_event, event)
+
+    def _handle_auto_event(self, event):
+        message = autoswitch.describe(event)
+        if message:
+            rumps.notification("Claude Swap", "자동 전환", message)
+        if event.get("event") in autoswitch.SWITCH_EVENTS:
+            self._fetch()
+
+    def quit(self, _=None):
+        self.auto.stop()
+        rumps.quit_application()
 
     # ---- adding an account ------------------------------------------------
     def add_account(self, _=None):
